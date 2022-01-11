@@ -1,0 +1,1159 @@
+---
+title: "A study of the socio-economic and geographic aspects of detainment since the Myanmar Coup in 2021"
+author: "Abhilash Biswas, Jaison Jose, Vidisha Chowdhury"
+date: "09/12/2021"
+output: 
+  html_document:
+    code_folding: hide
+---
+
+## Abstract
+
+On 1 February 2021, the quasi-democratic government of Myanmar was overthrown by the Tatmadaw - the Burmese military  in a coup d'état which sparked a series of protests in the country. Owing to the brutal response of the military to the peaceful demonstrations, people have started resorting to more violent forms of resistance such as paramilitary training to oppose the Tatmadaw. In response, the military has been attempting to aggressively eliminate resistance in the country. According to the Assistance Association for Political Prisoners (AAPP), nearly 1,300 people have been killed by the junta and more than 10,000 have been arrested since the coup. This analysis is an attempt to characterise detainment in Myanmar. We study individual level attributes such as gender and age distribution of detainees, look at the association between detainment, imprisonment and deaths. In addition, our township level analysis tries to examine if detainment is associated with some socio-economic, demographic or geographic patterns in Myanmar. 
+
+## Introduction
+
+Since the military coup in Myanmar, many civilians and opposition forces have been detained, imprisoned, and killed. The Assistance Association for Political Prisoners (AAPP) records these occurrences along with the names, gender, designation and additional attributes of people involved in these incidents. Since February 2021, as the Burmese military adopts more violent ways to curb public resistance, there is a growing consensus among people that the military needs to be countered using more aggressive forms of opposition. In certain parts of the country, civilians are training with firearms and hand grenades making it evident that the country is on the brink of a civil war. 
+
+Media reports suggest that the military has been targeting areas that are home to armed civilians known as the People’s Defense Force. It has been reported that there has been a large buildup of troops in the northwest of Myanmar. According to residents, fire rockets have been launched, homes burnt down, food supplies cut and civilians attempting to escape have been shot.
+
+Using data recorded by the AAPP and township level Census data, we try to analyze if it is is the case that detainment in Myanmar is correlated some socio-economic and geographic patterns. In particular, we try to determine if there is a statistically significant difference in detainment across individual level characteristics such as age and gender and examine the association between detainment and development indicators at the township level.This exercise will help us investigate if there are particular patterns in detainment and analyze reports of targeted military operations.
+
+## Methods
+
+The three data sets we use and their sources are outlined below.
+
+1) Data on detainment, imprisonment and death of political prisoners - AAPP
+2) Historical data on Myanmar indicators at the township level - Myanmar Information Management Unit (MIMU)
+3) A derived data set on conflicts and protests in Myanmar in 2021 - Armed Conflict Location & Event Data Project (ACLED)
+
+## 1. Cleaning and merging
+
+### a. Cleaning all the individual datasets
+
+```{r message=F, warning=F}
+#Importing necessary libraries
+
+library(tidyverse)
+library(modelsummary)
+library(knitr)
+
+
+#DETAINEES
+
+  ## Import detainees dataset
+  detainees = read_csv("https://www.andrew.cmu.edu/user/jweiss2/21f_r/94842/final_2021/detained.csv.gz")
+  
+ 
+#Checking number of missing values in all columns
+
+sapply(detainees, function(x) (sum(is.na(x))/length(x))*100)
+
+#Drop missing values by name and Serial number
+detainees = detainees %>% 
+                  drop_na(Name) %>%
+                  drop_na(No)
+
+total_detained = length(detainees$Name) #Unique detainees
+
+
+# Tabulating data type of each column
+
+data.frame("Type" = sapply(detainees, function(x) typeof(x)))
+
+
+# Converting Age into a numeric column
+
+
+detainees =   detainees %>%
+                mutate(Age_1 = 
+                  case_when(str_detect(Age, "Under") ~ "18", 
+                            ## Just two observations for under 18, therefore dropped
+                            str_detect(Age, "[a-zA-Z]") ~ "NA",
+                            str_detect(Age, "2000.0") ~ "NA",
+                            str_detect(Age, "3000000000.0") ~ "NA",
+                            str_detect(Age, "\\)") ~ "NA",
+                            T ~ Age
+                            
+                            ))
+
+detainees$Age_1[detainees$Age_1 == "NA"] = NA
+
+detainees$Age_1 = as.numeric(detainees$Age_1)
+
+detainees$Age = detainees$Age_1
+
+# Converting Sex into a factor column
+
+detainees =   detainees %>%
+                mutate(Sex_1 = 
+                  case_when(str_detect(Sex, "[a-zA-Z]*M[a-zA-Z]*") ~ "M", 
+                            str_detect(Sex, "[a-zA-Z]*F[a-zA-Z]*") ~ "F",
+                            str_detect(Sex, "[^M|^F]]*") ~ "NA",
+                            T ~ Sex
+                            
+                            ))
+
+detainees$Sex_1[detainees$Sex_1 == "NA"] = NA
+detainees$Sex_1 = factor(detainees$Sex_1, levels = c("F","M"))
+
+
+detainees$Sex = detainees$Sex_1
+
+detainees = subset(detainees, select = -c(Sex_1, Age_1))
+
+
+# Tabulating unique values in each column
+
+data.frame("Unique_Values" = sapply(detainees, function(x) length(unique(x))))
+
+
+#Missing Sex
+missing_sex_detainees = sum(is.na(detainees$Sex))
+
+#Missing Age
+missing_age_detainees = sum(is.na(detainees$Age))
+ 
+  #Parsing the status column to get designation of detained people
+  detainees = detainees %>%
+                  mutate(designation = 
+                    case_when(str_detect(Status, "MP") ~ "MP or Former MP",
+                              str_detect(Status, "NLD") ~ "NLD",
+                              str_detect(Status, "Other Parties") ~ "Other Parties",
+                              str_detect(Status, "Public Servant") ~ "Public Servant",
+                              str_detect(Status, "Religious") ~ "Religious person",
+                              str_detect(Status, "Minister") ~ "Government Minister",
+                              str_detect(Status, "Civilian") ~ "Civilian",
+                              str_detect(Status, "Medic") ~ "Medical Professional",
+                              str_detect(Status, "Student") ~ "Student",
+                              str_detect(Status, "Education") ~ "Academic professional",
+                              str_detect(Status, "Teacher") ~ "Academic professional",
+                              str_detect(Status, "Admin") ~ "Administrative staff (any level of state)",
+                              str_detect(Status, "Media") ~ "Media Person",
+                              str_detect(Status, "Reporter") ~ "Media Person",
+                              str_detect(Status, "Activist") ~ "Activist",
+                              str_detect(Status, "CSO") ~ "Activist",
+                        
+                              T ~ "Other Misc"
+                              )
+                    )
+  unique_designations_detainees = unique(detainees$designation)
+  
+  
+  #Getting township names from address for merging
+  detainees = detainees %>%
+    mutate(township = str_replace_all(Address,".*,","")) %>%
+    mutate(township = str_replace_all(township,"T?own.*","")) 
+
+  #Getting month of detainment (to be used for analysis later)
+  
+  detainees = detainees %>% 
+                mutate(month = case_when(
+                                str_detect(`Date of Arrest`, "[0-9]{1,2}-[a-zA-Z]{3}-[0-9]{1,2}") ~
+                                           str_extract(`Date of Arrest`, "-[a-zA-Z]{3}-"),
+                                         T ~ "NA")) %>%
+    
+                mutate(month = case_when(str_detect(`month`,  "-[a-zA-Z]{3}-") ~
+                                           str_extract(month, "[a-zA-Z]{3}"),
+                                         T ~ "NA"))
+  detainees$month[detainees$month == "NA"] = NA
+    
+  #Converting into a tibble with nested individual level data
+  nested.det = detainees %>% nest(data_det=-township)
+  unique_townships_det = nrow(nested.det)
+
+###############################################################################
+#IMPRISONMENT
+
+  #Importing the dataset
+  imprisoned = read_csv("https://www.andrew.cmu.edu/user/jweiss2/21f_r/94842/final_2021/imprisoned.csv.gz")
+  
+  #Changing the sex column name
+  names(imprisoned)[names(imprisoned) == 'Sex /Age'] = 'Sex'
+  
+  #Drop missing values by name and Serial number
+  imprisoned = imprisoned %>% 
+                    drop_na(Name) %>%
+                    drop_na(No)
+  total_imprisoned = length(imprisoned$Name) #Unique imprisoned
+  
+#Checking number of missing values in all columns
+
+sapply(imprisoned, function(x) (sum(is.na(x))/length(x))*100)
+
+
+
+#Drop missing values by name and Serial number
+imprisoned = imprisoned %>% 
+                  drop_na(Name) %>%
+                  drop_na(No)
+
+total_imprisoned = length(imprisoned$Name) #Unique imprisoned
+
+
+# Converting Age into a numeric column
+
+
+imprisoned =   imprisoned %>%
+                mutate(Age_1 = 
+                  case_when(str_detect(Age, "[a-zA-Z]") ~ "NA",
+                            T ~ Age
+                            ))
+
+imprisoned$Age_1[imprisoned$Age_1 == "NA"] = NA
+
+imprisoned$Age_1 = as.numeric(imprisoned$Age_1)
+
+imprisoned$Age = imprisoned$Age_1
+
+# Converting Sex into a factor column
+
+imprisoned =   imprisoned %>%
+                mutate(Sex_1 = 
+                  case_when(str_detect(Sex, "[a-zA-Z]*M[a-zA-Z]*") ~ "M", 
+                            str_detect(Sex, "[a-zA-Z]*F[a-zA-Z]*") ~ "F",
+                            str_detect(Sex, "[^M|^F]]*") ~ "NA",
+                            T ~ Sex
+                            
+                            ))
+
+imprisoned$Sex_1[imprisoned$Sex_1 == "NA"] = NA
+imprisoned$Sex_1 = factor(imprisoned$Sex_1, levels = c("F","M"))
+
+imprisoned$Sex = imprisoned$Sex_1
+
+imprisoned = subset(imprisoned, select = -c(Sex_1, Age_1))
+
+
+# Tabulating unique values in each column
+
+ data.frame("Unique_Values" = sapply(imprisoned, function(x) length(unique(x))))
+
+  #Sex
+  missing_sex_imprisoned = sum(is.na(imprisoned$Sex))
+  
+  #Missing Age
+  missing_age_imprisoned = sum(is.na(imprisoned$Age))
+ 
+  #Parsing the status column to get designation of imprisoned people
+  imprisoned = imprisoned %>%
+                  mutate(designation = 
+                    case_when(str_detect(Status, "MP") ~ "MP or Former MP",
+                              str_detect(Status, "NLD") ~ "NLD",
+                              str_detect(Status, "Other Parties") ~ "Other Parties",
+                              str_detect(Status, "Public Servant") ~ "Public Servant",
+                              str_detect(Status, "Religious") ~ "Religious person",
+                              str_detect(Status, "Minister") ~ "Government Minister",
+                              str_detect(Status, "Civilian") ~ "Civilian",
+                              str_detect(Status, "Medic") ~ "Medical Professional",
+                              str_detect(Status, "Student") ~ "Student",
+                              str_detect(Status, "Education") ~ "Academic professional",
+                              str_detect(Status, "Teacher") ~ "Academic professional",
+                              str_detect(Status, "Admin") ~ "Administrative staff (any level of state)",
+                              str_detect(Status, "Media") ~ "Media Person",
+                              str_detect(Status, "Reporter") ~ "Media Person",
+                              str_detect(Status, "Activist") ~ "Activist",
+                              str_detect(Status, "CSO") ~ "Activist",
+                        
+                              T ~ "Other Misc"
+                              )
+                    )
+  unique_designations_imprisoned = unique(imprisoned$designation)
+  
+
+  #Getting township names from address for merging
+  imprisoned = imprisoned %>%
+    mutate(township = str_replace_all(Address,".*,","")) %>%
+    mutate(township = str_replace_all(township,"T?own.*","")) 
+
+  #Getting month of imprisonment (to be used for analysis later)
+  
+  imprisoned = imprisoned %>%
+                  mutate(month = case_when(str_detect(`Date of Arrest`, 
+                                                    "[0-9]{1,2}-[a-zA-Z]{3}-[0-9]{1,2}") ~
+                                           str_extract(`Date of Arrest`, "-[a-zA-Z]{3}-"),
+                                           str_detect(`Date of Arrest`, 
+                                                    "Mar") ~ "Mar",
+                                           str_detect(`Date of Arrest`, 
+                                                    "Sep") ~ "Sep",
+                                           str_detect(`Date of Arrest`, 
+                                                    "Apr") ~ "Apr",
+                                         T ~ "NA"))%>%
+    
+    mutate(month = case_when(str_detect(`month`,                                              
+                                        "-[a-zA-Z]{3}-") ~
+                                           str_extract(month, "[a-zA-Z]{3}"),
+                                         T ~ month))
+  imprisoned$month[imprisoned$month == "NA"] = NA
+    
+  
+  #Converting into a tibble with nested individual level data
+  nested.imp = imprisoned %>% nest(data_imp=-township)
+  unique_townships_imp = nrow(nested.imp)
+  
+
+
+###############################################################################
+
+#FALLEN
+
+  #Importing the dataset
+  fallen = read_csv("https://www.andrew.cmu.edu/user/jweiss2/21f_r/94842/final_2021/fallen.csv")
+  
+  #Drop missing values by name and Serial number
+  fallen = fallen %>% 
+                  drop_na(Name) %>%
+                  drop_na(No.)
+  total_fallen = length(fallen$Name) #Unique imprisoned
+  
+ #Checking number of missing values in all columns
+
+sapply(fallen, function(x) (sum(is.na(x))/length(x))*100)
+
+#Drop missing values by name and Serial number
+fallen = fallen %>% 
+                drop_na(Name) %>%
+                drop_na(No.)
+
+total_fallen = length(fallen$Name) #Unique imprisoned
+
+# Converting Age into a numeric column
+
+
+fallen =   fallen %>%
+                mutate(Age_1 = 
+                  case_when(str_detect(Age, "[a-zA-Z]") ~ "NA",
+                            str_detect(Age, "[0-9] ?+") ~ str_extract(Age, "[0-9]{2}"),
+                            T ~ Age
+                            ))
+
+fallen$Age_1[fallen$Age_1 == "NA"] = NA
+
+fallen$Age_1 = as.numeric(fallen$Age_1)
+
+fallen$Age = fallen$Age_1
+
+# Converting Sex into a factor column
+
+fallen =   fallen %>%
+                mutate(Sex_1 = 
+                  case_when(str_detect(Sex, "[a-zA-Z]*M [a-zA-Z]*") ~ "M", 
+                            str_detect(Sex, "[a-zA-Z]*F [a-zA-Z]*") ~ "F",
+                            str_detect(Sex, "[^M|^F]]*") ~ "NA",
+                            T ~ Sex
+                            
+                            ))
+
+fallen$Sex_1[fallen$Sex_1 == "NA"] = NA
+fallen$Sex_1 = factor(fallen$Sex_1, levels = c("F","M"))
+
+fallen$Sex = fallen$Sex_1
+
+fallen = subset(fallen, select = -c(Sex_1, Age_1))
+
+
+# Tabulating unique values in each column
+
+data.frame("Unique_Values" = sapply(fallen, function(x) length(unique(x))))
+
+  #Sex
+  missing_sex_fallen = sum(is.na(fallen$Sex))
+  
+  #Missing Age
+ missing_age_fallen = sum(is.na(fallen$Age))
+ 
+  #Parsing the Organization column to get designation of fallen people
+  fallen = fallen %>%
+                  mutate(designation = 
+                    case_when(str_detect(Organization, "MP") ~ "MP or Former MP",
+                              str_detect(Organization, "NLD") ~ "NLD",
+                              str_detect(Organization, "Other Parties") ~ "Other Parties",
+                              str_detect(Organization, "Public Servant") ~ "Public Servant",
+                              str_detect(Organization, "Religious") ~ "Religious person",
+                              str_detect(Organization, "Minister") ~ "Government Minister",
+                              str_detect(Organization, "Civilian") ~ "Civilian",
+                              str_detect(Organization, "Medic") ~ "Medical Professional",
+                              str_detect(Organization, "Student") ~ "Student",
+                              str_detect(Organization, "Education") ~ "Academic professional",
+                              str_detect(Organization, "Teacher") ~ "Academic professional",
+                              str_detect(Organization, "Admin") ~ "Administrative staff (any level of state)",
+                              str_detect(Organization, "Media") ~ "Media Person",
+                              str_detect(Organization, "Reporter") ~ "Media Person",
+                              str_detect(Organization, "Activist") ~ "Activist",
+                              str_detect(Organization, "CSO") ~ "Activist",
+                        
+                              T ~ "Other Misc"
+                              )
+                    )
+  unique_designations_fallen = unique(fallen$designation)
+  
+
+  
+  #Cleaning existing township names
+  fallen = fallen %>%
+    mutate(township = str_replace_all(Township,".*,","")) %>%
+    mutate(township = str_replace_all(township,"T?own.*","")) %>%
+    dplyr::mutate(Township = str_extract(Township, '[^\\(]+'))
+  
+  #Getting month of fallen (to be used for analysis later)
+  fallen = fallen %>% mutate(month = case_when(str_detect(`Date of Incident`, 
+                                                    "[0-9]{1,2}-[a-zA-Z]{3}-[0-9]{1,2}") ~
+                                           str_extract(`Date of Incident`, "-[a-zA-Z]{3}-"),
+                                           
+                                         T ~ "NA"))%>%
+    
+    mutate(month = case_when(str_detect(`month`,                                              
+                                        "-[a-zA-Z]{3}-") ~
+                                           str_extract(month, "[a-zA-Z]{3}"),
+                                         T ~ month))
+  fallen$month[fallen$month == "NA"] = NA
+
+
+  
+  #Converting into a tibble with nested individual level data
+  nested.fal = fallen %>% nest(data_fal=-township)
+  unique_townships_fal = nrow(nested.fal)
+
+###############################################################################
+
+#CONFLICTS
+
+  #Importing the dataset
+  conflicts = read_csv("https://www.andrew.cmu.edu/user/jweiss2/21f_r/94842/final_2021/conflicts.csv.gz")
+  
+  #Generating township name
+  conflicts = conflicts %>%
+    mutate(township = str_replace_all(admin3,".*,","")) %>%
+    mutate(township = str_replace_all(township,"T?own.*","")) 
+  
+  
+  #Converting into a tibble with nested individual level data
+  nested.fal = fallen %>% nest(data_fal=-township)
+  unique_townships_fal = nrow(nested.fal)
+
+  #Creating a dataframe of actors
+  actors = c('State Forces','Rebel Groups','Political Militias','Identity Militias','Rioters','Protesters','Civilians','External;/Other forces','no actor')
+  code = c(1,2,3,4,5,6,7,8,0)
+  
+  actor_codes = data.frame(code,actors)
+    
+  #Dropping existing actor names (as they don't reflect the broad category)
+  conflicts = subset(conflicts, select = -c(actor1,actor2) )
+  
+  #Now merging with the conflicts dataset
+  conflicts = merge(conflicts,actor_codes, by.x = "inter1", by.y = "code" )
+  names(conflicts)[names(conflicts) == 'actors'] = 'actor1'
+  
+  conflicts = merge(conflicts,actor_codes, by.x = "inter2", by.y = "code" )
+  names(conflicts)[names(conflicts) == 'actors'] = 'actor2'
+  
+  total_conflicts = nrow(conflicts)
+  
+  #Converting into a tibble with nested individual level data
+  nested.conf = conflicts %>% nest(data_conf=-township)
+  unique_townships_conf = nrow(nested.conf)
+
+```
+In this section we clean all the individual datasets, namely:
+
+- Detainees
+- Imprisoned
+- Fallen
+- Conflicts
+
+For each individual datasets, the following broad cleaning steps were followed:
+
+ 1. Drop rows containing no names for individuals
+ 2. Clean the Sex column (to be used for analysis later)
+ 3. Clean the Status column to extract the designation of individuals
+ 4. Extract the month of the incident that took place
+ 5. Convert each dataset to a nested tibble at a township level
+
+Based on the cleaning performed, below are some summary numbers:
+
+1. Detainees dataset
+  a. There are a total of `r unique_townships_det` unique townships in the detainees dataset. However, some of them may be random text and not actual township names. 
+  b. Out of `r nrow(detainees)` observations in the detainees dataset, `r missing_sex_detainees` had missing Sex values
+  c. Out of `r nrow(detainees)` observations in the detainees dataset, `r missing_age_detainees` had missing age values
+
+2. Imprisoned dataset
+  a. There are a total of `r unique_townships_imp` unique townships in the imprisoned dataset. However, some of them may be random text and not actual township names. 
+  b. Out of `r nrow(imprisoned)` observations in the imprisoned dataset, `r missing_sex_imprisoned` had missing Sex values
+  c. Out of `r nrow(imprisoned)` observations in the imprisoned dataset, `r missing_age_imprisoned` had missing age values
+
+3. Fallen dataset
+  a. There are a total of `r unique_townships_fal` unique townships in the fallen dataset. However, some of them may be random text and not actual township names. 
+  b. Out of `r nrow(fallen)` observations in the fallen dataset, `r missing_sex_fallen` had missing Sex values
+  c. Out of `r nrow(fallen)` observations in the fallen dataset, `r missing_age_fallen` had missing age values
+
+3. Conflicts dataset
+  a. There are a total of `r unique_townships_conf` unique townships in the conflicts dataset. However, some of them may be random text and not actual township names. 
+  b. There are a total of `r total_conflicts` reported in this dataset. 
+  c. There are a total of 8 unique actors involved in these conflicts. 
+
+### b. Getting the sector indicators and merging
+
+```{r message=F, warning=F}
+
+#Reading in the sectors (MIMU) dataset
+tmp = tempfile(fileext = ".xlsm")
+httr::GET(
+  url = "https://www.andrew.cmu.edu/user/jweiss2/21f_r/94842/final_2021/MIMU_BaselineData_AllSectors_Countrywide_18Mar2021_revised.xlsm", 
+  httr::write_disk(tmp)
+)
+
+sector.indicators = 
+  readxl::read_xlsx(tmp, sheet=3, skip = 5) %>% as_tibble()
+
+#Condensing the sectors dataframe into a tibble with nested data per indicator
+sector.nest = sector.indicators %>% 
+                select(1:3, 
+                       Indicator_Name, Indicator_Type, Sector, Unit, 
+                       starts_with("20"), Source_Name) %>%
+  
+                mutate(
+                       Indicator = paste(Indicator_Name, Indicator_Type, 
+                                         Sector, Unit, Source_Name, sep="|")) %>%
+  
+                select(1:3, 
+                       Indicator, starts_with("20")) %>%
+  
+                pivot_longer(cols = starts_with("20"), 
+                             names_to = "Year", 
+                             values_to="Value") %>%
+
+                filter(!is.na(Value)) %>%
+                nest(data = -Indicator) %>%
+                separate(Indicator, sep="\\|", 
+                         into = c("Indicator_Name", "Indicator_Type",
+                                  "Sector","Unit","Source_Name")) 
+
+
+#Creating the leven function to be used in merging on township names later
+leven = function(x, y, k=0, ignore.case=T) {
+  data.frame(y=y) %>%
+    as_tibble() %>%
+    
+    # compute Levenshtein distance for string x for each y
+    mutate(distance = utils::adist(x, y, 
+                                   ignore.case=ignore.case) %>% .[1,]) %>%
+    
+    # keep y's within k of the best match
+    filter(distance <= min(distance, na.rm=T) + k) %>%
+    mutate(distance.per.char = distance/nchar(y))
+}
+
+# Use `leven` for string *vectors* `x` and `y`
+apply_leven = function(x, y, k=0, distance.threshold=0.3, ignore.case=F) {
+  data.frame(x=x) %>%
+    # get potential matches for each x as a list of tibbles
+    mutate(leven.df = map(x, ~ leven(.x, y=y,
+                                     k=k, ignore.case=ignore.case))
+    ) %>%
+    unnest(everything()) %>%
+    mutate(is.match=distance.per.char < distance.threshold) %>%
+    
+    # order by best match
+    arrange(distance.per.char) %>%
+    
+    # keep the best match per `x`
+    group_by(x) %>% 
+    slice(1) %>%  
+    ungroup() %>%
+    
+    # convert non-matches to Other
+    mutate(y = ifelse(is.match, y, "Other"))  
+}
+
+
+#Adding indicators available from census
+township.values = sector.nest %>% 
+  filter( 
+           Indicator_Name == "Proportion of female-headed households" |        
+           Indicator_Name == "Population size" | 
+           Indicator_Name == "Urban Population as Percentage of Total Population" | 
+           Indicator_Name == "Age dependency ratio" | 
+           Indicator_Name == "Child dependency ratio" | 
+           Indicator_Name == "Sex ratio" | 
+           Indicator_Name == "Adult literacy rate" | 
+           Indicator_Name == "Number of Households by source of lighting" | 
+           Indicator_Name == "Percentage of households with safe sanitation" | 
+           Indicator_Name == "Percentage of Households' use of drinking water by source" ,
+
+           Indicator_Type=="Total"| 
+           Indicator_Type == "Electricity - Total"|
+           Indicator_Type=="Improved sources - Total",
+         
+         str_detect(Source_Name, "Census")) %>%
+  unnest(everything())
+
+#Adding additional indicators from other sources
+add_indi.values = sector.nest %>% 
+  filter(Indicator_Name == "Infant mortality rate" | 
+         Indicator_Name == "Township hospital" | 
+         Indicator_Name == "Children Immunized (BCG)" | 
+         Indicator_Name == "Malnutrition under three years" | 
+         Indicator_Name == "Battles" | 
+         Indicator_Name == "Fatalities" |
+         Indicator_Name == "Non-Dependent population" | 
+         Indicator_Name == "Wealth Ranking Index" | 
+         Indicator_Name == "Approximate Vulnerable Population",
+
+         Indicator_Type=="Total") %>%
+          unnest(everything())
+
+#Appending the 2 above dataframes together
+township.values = rbind(township.values, add_indi.values)
+
+#Pivoting the dataset to have one row per unique township
+township.values = township.values %>% 
+                    pivot_wider(names_from = Indicator_Name, 
+                                values_from=Value, 
+                                id_cols = Township_Name)
+
+#Getting the last values for some of the indicators as they represent the latest year from which the value was extracted
+extract_last = function(x) {
+    x[length(x)]
+}
+
+#Applying the above function on a bunch of township.values columns
+township.values$`Infant mortality rate` = sapply(township.values$`Infant mortality rate`, extract_last)
+township.values$`Children Immunized (BCG)` = sapply(township.values$`Children Immunized (BCG)`, extract_last)
+township.values$`Malnutrition under three years` = sapply(township.values$`Malnutrition under three years`, extract_last)
+township.values$`Age dependency ratio` = sapply(township.values$`Age dependency ratio`, extract_last)
+township.values$`Child dependency ratio` = sapply(township.values$`Child dependency ratio`, extract_last)
+township.values$`Population size` = sapply(township.values$`Population size`, extract_last)
+township.values$`Proportion of female-headed households` = sapply(township.values$`Proportion of female-headed households`, extract_last)
+township.values$`Sex ratio` = sapply(township.values$`Sex ratio`, extract_last)
+township.values$`Urban Population as Percentage of Total Population` = sapply(township.values$`Urban Population as Percentage of Total Population`, extract_last)
+township.values$`Number of Households by source of lighting` = sapply(township.values$`Number of Households by source of lighting`, extract_last)
+township.values$`Percentage of households with safe sanitation` = sapply(township.values$`Percentage of households with safe sanitation`, extract_last)
+township.values$`Percentage of Households' use of drinking water by source` = sapply(township.values$`Percentage of Households' use of drinking water by source`, extract_last)
+township.values$`Township hospital` <- sapply(township.values$`Township hospital`, extract_last)
+
+#Converting NULL to 0
+township.values = township.values %>%
+                      mutate_all(funs(str_replace_all(.,"NULL","0")))
+
+
+#Removing any remaining non numeric rows and converting columns to numeric
+
+columns = c(colnames(township.values))
+columns = columns[-1]
+township.values[columns] = sapply(township.values[columns],as.numeric)
+
+#Creating a short table listing all chosen indicators
+indicators = colnames(township.values)
+indicators = indicators[-1] #Removing the township name variable from the list
+
+rationale = c(
+              "To see if number of dependent population in a township affects detainment",
+              "Same as above",
+              "An essential control while comparing detainee counts across townships",
+              "Interesting indicator of social dynamics in a town",
+              "Since male and female may have different detainment rates",
+              "To see if detainments happen more in urban or rural areas",
+              "To see if more literate population are detained in higher numbers",
+              "Indicator of development status of the town",
+              "Indicator of development status of the town",
+              "Indicator of development status of the town",
+              "Similar rationale as for Age dependency ratio",
+              "Same as above",
+              "Indicator of wealth",
+              "Important health indicator for a town",
+              "Same as above",
+              "Same as above",
+              "Same as above",
+              "To see if more battles lead to more detainment",
+              "To see if fatalities and detainment is correlated"
+          
+)
+
+indicator_table = data.frame(indicators,rationale)
+
+###  Now creating some merged datasets for analysis
+
+# 1. merged_data_det = detainees merged with MIMU indicators
+# 2. merged_data_det_conf = detainees merged with MIMU indicators merged with conflict data
+# 3. merged_data_det_imp = detainees merged with MIMU indicators merged with imprisoned data
+# 4. merged_data_det_fal = detainees merged with MIMU indicators merged with fallen data
+
+
+
+#merged_data_det
+
+merged_data_det = nested.det %>% 
+                inner_join(apply_leven(.$township,
+                                       township.values$Township_Name,
+                                       distance.threshold=0.28),
+                           by=c("township"="x")
+                ) %>%
+                
+                rename(detainee_township=township, MIMU_township=y) %>%
+                
+                group_by(MIMU_township) %>%
+                summarise(detainees = sum(map_dbl(data_det,nrow))) %>%
+                ungroup() %>%
+  
+                left_join(township.values, by=c("MIMU_township"="Township_Name")) %>%
+                filter(MIMU_township!="Other")
+
+#Saving null value counts
+null_vals = sapply(merged_data_det, function(x) (sum(is.null(x))/length(x))*100)
+
+#None of the columns have any null values
+
+#merged_data_det_conf
+merged_data_det_conf = nested.conf %>% 
+                inner_join(apply_leven(.$township,
+                                       township.values$Township_Name,
+                                       distance.threshold=0.28),
+                           by=c("township"="x")
+                ) %>%
+                
+                rename(conflict_township=township, MIMU_township=y) %>%
+                
+                group_by(MIMU_township) %>%
+                summarise(conflicts = sum(map_dbl(data_conf,nrow))) %>%
+                ungroup() %>%
+  
+                left_join(merged_data_det, by=c("MIMU_township"="MIMU_township")) %>%
+                filter(!is.na(detainees)) %>%
+                filter(MIMU_township!="Other")
+
+
+#merged_data_det_imp
+
+merged_data_det_imp = nested.imp%>% 
+                inner_join(apply_leven(.$township,
+                                       township.values$Township_Name,
+                                       distance.threshold=0.28),
+                           by=c("township"="x")
+                ) %>%
+                
+                rename(imprisoned_township=township, MIMU_township=y) %>%
+                
+                group_by(MIMU_township) %>%
+                summarise(imprisoned = sum(map_dbl(data_imp,nrow))) %>%
+                ungroup() %>%
+  
+                left_join(merged_data_det, by=c("MIMU_township"="MIMU_township")) %>%
+                filter(!is.na(detainees)) %>%
+                filter(MIMU_township!="Other")
+
+
+#merged_data_det_fal
+
+merged_data_det_fal = nested.fal%>% 
+                inner_join(apply_leven(.$township,
+                                       township.values$Township_Name,
+                                       distance.threshold=0.28),
+                           by=c("township"="x")
+                ) %>%
+                
+                rename(fallen_township=township, MIMU_township=y) %>%
+                
+                group_by(MIMU_township) %>%
+                summarise(fallen = sum(map_dbl(data_fal,nrow))) %>%
+                ungroup() %>%
+  
+                left_join(merged_data_det, by=c("MIMU_township"="MIMU_township")) %>%
+                filter(!is.na(detainees)) %>%
+                filter(MIMU_township!="Other")
+
+
+```
+
+In this section, we have picked certain indicators from the MIMU dataset and merged it with township level detainee, fallen, imprisoned and conflict counts for our analysis.
+
+#### Key datasets
+1. merged_data_det = detainees merged with MIMU indicators
+  a. Number of unique townships = `r nrow(merged_data_det)`
+  b. We have a total of `r sum(merged_data_det$detainees)` detainees in this dataset as compared to `r nrow(detainees)` in the individual detainees dataset. 
+  
+2. merged_data_det_conf = detainees merged with MIMU indicators merged with conflict data
+  a. Number of unique townships = `r nrow(merged_data_det_conf)`
+  b. We have a total of `r sum(merged_data_det_conf$detainees)` detainees in this dataset as compared to `r nrow(detainees)` in the individual detainees dataset. 
+  c. We have a total of `r sum(merged_data_det_conf$conflicts)` conflicts in this dataset as compared to `r nrow(conflicts)` in the individual detainees dataset. 
+  d. This is the dataset we will use primarily for our analysis
+
+This suggests that in the merging process, we have lost quite a bit of individual counts of detainees and fallen. For our subsequent analysis, we have assumed that if a town is not present in the above datasets, then the count of the appropriate variable (for example total detained) for that township is 0. 
+
+#### Socio-economic variables chosen
+Below is a list of the socio economic indicators chosen and a brief rationale:
+
+`r knitr::kable(indicator_table)`
+
+## 2. Tabulations
+In this section, we conduct some brief counts of different variables to get a sense of how detainment varies across different characteristics. 
+
+### a. Distribution of detainees, imprisoned and fallen by gender (Univariate)
+
+####Distribution of detainees by Sex
+```{r}
+knitr::kable(detainees[!is.na(detainees$Sex),] %>% group_by(Sex) %>% summarise(Count = n()))
+```
+
+####Distribution of imprisoned by Sex
+```{r}
+knitr::kable(imprisoned[!is.na(imprisoned$Sex),] %>% group_by(Sex) %>% summarise(Count = n()))
+```
+
+####Distribution of fallen by Sex
+```{r}
+knitr::kable((fallen[!is.na(fallen$Sex),] %>% group_by(Sex) %>% summarise(Count = n())))
+```
+From these tables, we can see that male citizens are detained, imprisoned and fallen at a disproportionately higher count. However, there could be a lot of biases in play here. Firstly, the sex ratio may be skewed towards men in the overall population. Further, if males are disproportionately represented in government service (which was a source of a lot of protests against this coup), it would lead to higher counts of men for detainment as well as other categories.  
+
+### b. Distribution of detainees by designation (Univariate)
+```{r}
+knitr::kable(detainees %>% group_by(designation) %>% summarise(Count = n()))
+```
+We see that civilians are the most detained category. However, this could be a categorisation problem where a bunch of categories are classified as civilians. These categories are not necessary mutually exclusive. Apart from civilians, we see that members of the National League for Democracy were the most detained category. This makes sense as the coup removed the government formed by this party and hence a large number of members from this party would be detained. It is also interesting to note that academic professionals are a significant detainee category. This could be because of government employees in state run academic institutions came out in a civil disobedience against the coup.  
+
+### c. Top 5 and bottom 5 detainee townships and the number of imprisoned in each (Multivariate)
+
+```{r message=F, warning=F}
+table = merged_data_det_imp[,1:3]
+table = table %>% arrange(desc(detainees))
+knitr::kable(table[c(1:5,(nrow(table)-4):nrow(table)),])
+```
+We can see that the top 5 towns in terms of detainees also have a higher count of imprisoned people. Likewise the bottom 5 towns have a lower count of imprisoned people. This may suggest that detainment could be followed by imprisonment as a natural next step. It could also indicate that the difference between what is called a detainment and what is called imprisonment may not be very well defined. 
+
+### d. Top 5 and bottom 5 detainee townships and their socio economic indicators (Multivariate)
+
+```{r message=F, warning=F}
+table = merged_data_det[,c("MIMU_township",
+                           "detainees",
+                           "Number of Households by source of lighting",
+                           "Infant mortality rate",
+                           "Malnutrition under three years",
+                           "Percentage of Households' use of drinking water by source",
+                           "Township hospital")]
+
+table = table %>% rename (
+                    "electricity_access" = "Number of Households by source of lighting",
+                    "under_3_malnutrition" = "Malnutrition under three years",
+                    "IMR" = "Infant mortality rate",
+                    "improved_drinking_water_access" = "Percentage of Households' use of drinking water by source"
+)
+
+table = table %>% arrange(desc(detainees))
+
+knitr::kable(table[c(1:5,(nrow(table)-4):nrow(table)),])
+
+```
+This table provides some interesting observations. Higher detainment towns have higher electricity access. This may indicate that more developed towns also had higher detainment. We will see later how urban population in a town affects detainment. It is important to note that both detainment and counts of electricity access can just be positively correlated with population size. 
+
+We do not see much of a difference in Infant mortality rate, malnutrition rate and access to improved drinking water rate to be associated with detainment counts. However, townships that had higher detainment also seem to not have township hospitals existing in them. 
+
+## 3. Data descriptions and visualizations
+
+We'll be showcasing visualizations of interesting inferences that we were able to glean from the data set.
+
+
+### 3.a Wealth Ranking index distribution (Univariate)
+
+```{r}
+ggplot(data = township.values, aes(x=`Wealth Ranking Index`)) + geom_density()
+```
+
+
+(Due the absence of an exact definition of wealth index in the MIMU codebook, we assume that the wealth index is a composite measure of a household's cumulative living standard calculated using data on a household’s ownership of selected assets. https://dhsprogram.com/topics/wealth-index/)
+
+The sample distribution of the wealth index across townships shows that the variable is likely to have an asymmetric distribution since its distribution is positively skewed.
+
+The density graph indicates that a high fraction of townships have a lower wealth ranking ranking (below 5)
+
+### 3.b Distribution of Children immunised with BCG (Univariate)
+```{r}
+
+ggplot(data = township.values, aes(x=`Children Immunized (BCG)`)) + geom_histogram()
+```
+
+The distribution of child immunization rates suggests that while a significant chunk of the townships have achieved above 80% or complete BCG immunization, there are about 21 townships with immunization rates close to zero.
+
+### 3.c Relationship between township detainee count and literacy rate (Bivariate)
+```{r message=F, warning=F}
+ggplot(merged_data_det, aes(x = `Adult literacy rate`, y = detainees)) + geom_point()
+
+```
+
+We can see that townships with higher literacy rate had more number of detainees. Its possible that there was a targeted attempt to capture the more literate part of the population to quell future resistance.
+
+### 3.d Relationship between township detainee count and proportion of urban population (Bivariate)
+```{r message=F, warning=F}
+ggplot(merged_data_det, aes(x = `Urban Population as Percentage of Total Population`, y = detainees)) + geom_point()
+
+```
+
+We can see here that townships with lower urban population had lesser detainment. We later investigate if this relation is statistically significant.
+
+### 3.e Relationship between township detainee count and proportion of female headed households (Bivariate)
+```{r message=F, warning=F}
+ggplot(merged_data_det, aes(x = `Proportion of female-headed households`, y = detainees)) + geom_point()
+
+```
+
+While no clear trend seems to emerge, one can see a lot of variation in detainee counts in townships which had 20-40% of female headed households.
+
+### 3.f Number of conflicts and fatalities by actor (Trivariate)
+```{r message=F, warning=F}
+#Create a dataframe to plot your visualization
+
+actors = unique(conflicts$actor1)
+conflicts[actors]  = 0
+
+#Creating a column per actor to generate counts
+conflicts = conflicts %>%  
+              mutate(`State Forces` = ifelse(                                                actor1 == "State Forces" |                                                actor2 == "State Forces", 1,0)) %>%
+              mutate(`Protesters` = ifelse(                                                  actor1 == "Protesters" |                                                  actor2 == "Protesters", 1, 0)) %>%
+              mutate(`Political Militias` = ifelse(
+                   actor1 == "Political Militias" | 
+                   actor2 == "Political Militias", 1, 0)) %>%
+              mutate(`Rioters` = ifelse(
+                   actor1 == "Rioters" | 
+                   actor2 == "Rioters", 1, 0)) %>%
+              mutate(`Rebel Groups` = ifelse(
+                   actor1 == "Rebel Groups" | 
+                   actor2 == "Rebel Groups", 1, 0)) %>%
+              mutate(`Civilians` = ifelse(
+                   actor1 == "Civilians" | 
+                   actor2 == "Civilians", 1, 0)) %>%
+              mutate(`External;/Other forces` = ifelse(
+                   actor1 == "External;/Other forces" | 
+                   actor2 == "External;/Other forces", 1, 0)) %>%
+              mutate(`Identity Militias` = ifelse(
+                   actor1 == "Identity Militias" | 
+                     actor2 == "Identity Militias", 1, 0))
+
+
+
+total_conflicts = c(sum(conflicts$`State Forces`), sum(conflicts$`Protesters`), sum(conflicts$`Political Militias`), 
+                    sum(conflicts$`Rioters`), sum(conflicts$`Rebel Groups`), sum(conflicts$`Civilians`),
+                    sum(conflicts$`External;/Other forces`), sum(conflicts$`Identity Militias`)) 
+
+total_fatalities = c(sum(conflicts[which(conflicts$`State Forces`==1), 15]), sum(conflicts[which(conflicts$`Protesters`==1), 15]),
+                     sum(conflicts[which(conflicts$`Political Militias`==1), 15]), 
+                     sum(conflicts[which(conflicts$`Rioters`==1), 15]),
+                     sum(conflicts[which(conflicts$`Rebel Groups`==1), 15]), sum(conflicts[which(conflicts$`Civilians`==1), 15]),
+                     sum(conflicts[which(conflicts$`External;/Other forces`==1), 15]), 
+                     sum(conflicts[which(conflicts$`Identity Militias`==1), 15]))
+
+
+data = data.frame(actors,total_conflicts,total_fatalities)
+data = data %>%
+          pivot_longer(!actors, names_to = "count_type", values_to = "count") %>%          
+          arrange(-count, actors )
+
+#Plotting
+ggplot(data, aes(x = actors, y = count, fill = count_type)) +
+  geom_col(position = "dodge") + theme(axis.text.x=element_text(angle = 45, vjust = 0.5))
+
+```
+
+We can see that State forces and Political Militias have the highest number of fatalities. These are also in the top 3 actors for most number of conflicts.
+
+Civilians have a disproportionate number of fatalities as a percentage of it's total conflicts, when compared to the other two. This could mean that even if civilians are part of conflicts they suffer lesser fatalitites.
+
+### 3.g Detainees, fallen and imprisoned over time (Trivariate)
+```{r message=F, warning=F}
+d = data.frame(detainees %>% group_by(detainees$month) %>% summarise(detainee_ct = n()))
+d = rename(d,month = "detainees.month")
+d$month = factor(d$month, levels = c("Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"))
+i = data.frame(imprisoned %>% group_by(imprisoned$month) %>% summarise(imprisoned_ct = n()))
+i = rename(i,month = "imprisoned.month")
+i$month = factor(i$month, levels = c("Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"))
+f = data.frame(fallen %>% group_by(fallen$month) %>% summarise(fallen_ct = n()))
+f= rename(f,month = "fallen.month")
+f$month = factor(f$month, levels = c("Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"))
+
+ggplot(data = d, aes( x=month, y = detainee_ct)) + geom_line(data = d, aes( x=month, y = detainee_ct, group = 1, color = "detainees")) + geom_line(data = i, aes(x=month, y = imprisoned_ct ,group=1, color="imprisoned")) + geom_line(data = f, aes(x=month, y = fallen_ct, group=1, color = "fallen" )) + ylab("Count") +  scale_color_manual(name = "Individual Type", values = c("detainees" = "darkred", "imprisoned" = "darkgreen", "fallen" = "blue")) + xlab("Month in the year 2021")
+```
+
+
+We can see that there is a spike in detainee, imprisoned and fallen counts during march,followed by frequent burst of detainment. This is aligned with the general reports of increased detainment following the coup.
+Imprisonment and fatalities have generally reduced over time, except for two spikes in July and September.
+
+## 4. Statistical tests
+
+In this section we shall drawing inferences based on the data exploration that we have done. We are forming hypothesis by what we have analyzed above and testing them for statistical significance
+
+### 4.a Checking if proportion of urban population is different in towns which haven't had any detainment as compared to those which have had atleast 1 detainment
+
+```{r message=F, warning=F}
+test_data = township.values[,c("Township_Name","Urban Population as Percentage of Total Population")]
+
+test_data = test_data %>% 
+              left_join(merged_data_det, by=c("Township_Name"="MIMU_township")) 
+
+test_data = test_data[,c("Township_Name","detainees","Urban Population as Percentage of Total Population.x")]
+test_data$any_detainment[test_data$detainees>0] = 1
+test_data$any_detainment[is.na(test_data$any_detainment)] = 0
+
+test_data
+
+t_test = t.test(`Urban Population as Percentage of Total Population.x` ~ any_detainment, data = test_data)
+t_test
+
+
+```
+
+Townships with urban population have more chances of having detainment than those without.
+
+### 4.b Checking how the wealth ranking index varies between townships having no detainees vs those having atleast 1 detainee
+
+```{r}
+ggplot(data = township.values, aes(x=`Wealth Ranking Index`)) + geom_density()
+```
+
+
+```{r message=F, warning=F}
+test_data = township.values[,c("Township_Name","Wealth Ranking Index")]
+
+test_data = test_data %>% 
+              left_join(merged_data_det, by=c("Township_Name"="MIMU_township")) 
+
+test_data = test_data[,c("Township_Name","detainees","Wealth Ranking Index.x")]
+
+test_data$any_detainment[test_data$detainees>0] = 1
+test_data$any_detainment[is.na(test_data$any_detainment)] = 0
+
+test_data
+
+wilcox_test = wilcox.test(`Wealth Ranking Index.x` ~ any_detainment, test_data, conf.int=TRUE)
+wilcox_test
+
+```
+The t test indicates that townships with detainees have lower wealth index than townships without detainees and this difference is statistically significant at the 5% level.
+
+## 5. Regressions
+
+#### [Provide a 1-2 liner section introdution]
+
+### 5.a Regressing detainees on all the chosen indicators from MIMU (including population size) at a township level
+
+```{r message=F, warning=F}
+
+data = merged_data_det_conf %>% rename (
+                    "electricity_access" = "Number of Households by source of lighting",
+                    "under_3_malnutrition" = "Malnutrition under three years",
+                    "IMR" = "Infant mortality rate",
+                    "improved_drinking_water_access" = "Percentage of Households' use of drinking water by source",
+                    "prop_female_headed_hh" = "Proportion of female-headed households",
+                    "sex_ratio" = "Sex ratio",
+                    "prop_urban_population" = "Urban Population as Percentage of Total Population",
+                    "percent_safe_sanitation" = "Percentage of households with safe sanitation",
+                    "approx_vulnerable_population" = "Approximate Vulnerable Population",
+                    
+                    
+)
+
+data = data %>% subset(select = -MIMU_township) 
+  
+
+
+reg1.lm = lm(detainees ~ ., data = data) 
+
+summary(reg1.lm)
+```
+
+The factors below are all statistically insignificant when it comes to determining the number of detainees in a township. 
+
+Age dependency ratio          
+Child dependency ratio       
+Population size                
+prop_female_headed_hh          
+sex_ratio                               
+Adult literacy rate          
+electricity_access                 
+percent_safe_sanitation         
+improved_drinking_water_access 
+Wealth Ranking Index
+IMR                            
+under_3_malnutrition           
+Battles                        
+Fatalities                 
+
+This could be due to high collinearity. We shall be determining collinearity and dropping highly collinear variables.
+
+### 5.b Assessing collinearity in the above regression
+
+```{r message=F, warning=F}
+flattenCorrMatrix <- function(cormat, pmat) {
+  ut <- upper.tri(cormat)
+  data.frame(
+    row = rownames(cormat)[row(cormat)[ut]],
+    column = rownames(cormat)[col(cormat)[ut]],
+    cor  =(cormat)[ut],
+    p = pmat[ut]
+    )
+}
+
+library(Hmisc)
+res2 = rcorr(as.matrix(data[,2:ncol(data)]))
+corr_table = flattenCorrMatrix(res2$r, res2$P)
+
+corr_table %>% filter(cor >= 0.7)
+
+ 
+
+```
+
+We can see that variables on the right have high collinearity with the one's on the left. We shall be dropping the following variables to reduce collinearity. This helps in making some variables statistically significant as well.
+
+Child dependency ratio
+approx_vulnerable_population
+Non-Dependent population
+Wealth Ranking Index
+
+### 5.c Running a 2nd model after dropping the highly correlated independent variables
+
+```{r message=F, warning=F}
+
+#Dropping highly correlated variables
+
+data_trimmed = data %>% subset(select = -`Child dependency ratio`) %>%
+                        subset(select = -`approx_vulnerable_population`) %>%
+                        subset(select = -`Non-Dependent population`) %>%
+                        subset(select = -`Wealth Ranking Index`)
+
+
+reg2.lm = lm(detainees ~ ., data = data_trimmed) 
+
+summary(reg2.lm)
+```
+
+We can see that reducing collinearity has made some of the variables more statistically significant.
+
+### 5.d Comparing the 2 models
+
+```{r message=F, warning=F}
+#Comparing models
+
+library(modelsummary)
+list(full.model=reg1.lm,
+     reduced.model=reg2.lm) %>%
+  modelsummary(statistic = NULL, stars = T)
+
+
+```
+
+The factors below have a high correlation when determining the number of detainees:
+
+- prop_urban_population
+- conflicts
+- Township hospital
+- Children Immunized (BCG)
+
+From this we can understand that urban population is a big factor in detainment.
+Many detainments might also be stemming from conflicts that have taken place.
+Township hospital and children immunized show how well to do the township is in terms of healthcare. This also shows that townships with no township hospitals have more detainments.
+
+```{r}
+plot(reg2.lm)
+```
+
+
+
+
